@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<base target="_top">
+<?!= include('Shared') ?>
+<style>
+  header{background:var(--accent-dark);color:#fff;padding:18px 20px;font-size:18px;font-weight:800;}
+  .wrap{max-width:920px;margin:0 auto;padding:20px;}
+  .gate{max-width:360px;margin:60px auto;padding:30px;text-align:center;}
+  .gate input{width:100%;text-align:center;padding:12px;border-radius:10px;border:1.5px solid var(--border);font:inherit;margin:14px 0 10px;}
+  .err{color:var(--red);font-size:14px;min-height:18px;margin-top:6px;}
+  section{padding:22px;margin-bottom:20px;}
+  h2{font-size:16px;margin:0 0 16px;}
+  .field{margin-bottom:14px;}
+  label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  input[type=text],textarea{width:100%;border:1.5px solid var(--border);border-radius:10px;
+    padding:11px 13px;font-size:14px;font-family:inherit;color:var(--ink);}
+  textarea{min-height:110px;resize:vertical;line-height:1.7;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .pairlist{list-style:none;margin:12px 0 0;padding:0;}
+  .pairlist li{display:flex;gap:8px;align-items:center;padding:9px 10px;border:1px solid var(--border);
+    border-radius:10px;margin-bottom:6px;font-size:13px;background:#fff;}
+  .pairlist .g{color:var(--guide-ink);font-weight:700;}
+  .pairlist .o{color:var(--orig-ink);font-weight:700;}
+  .pairlist input{flex:1;font-size:13px;padding:6px 8px;}
+  .pairlist .del{background:none;border:none;color:var(--red);font-size:18px;cursor:pointer;padding:0 4px;}
+  .unmatched{background:var(--red-bg);border-radius:10px;padding:10px 14px;margin-top:10px;font-size:13px;color:#a5392c;}
+  .hint{font-size:12px;color:var(--muted);margin-top:5px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+  th,td{border:1px solid var(--border);padding:9px 10px;text-align:left;vertical-align:middle;}
+  th{background:#f4f1ea;font-weight:700;}
+  .muted{color:var(--muted);}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate card">
+  <h2 style="margin:0 0 6px;">교사 인증</h2>
+  <p class="muted" style="margin:0;">관리자 비밀번호를 입력하세요.</p>
+  <input type="text" id="gPw" placeholder="비밀번호" autocomplete="off">
+  <button class="btn" id="gBtn" style="width:100%;">입장</button>
+  <div class="err" id="gErr"></div>
+</div>
+
+<div id="app" style="display:none">
+  <header>키워드 매핑 · 문제 관리</header>
+  <div class="wrap">
+
+    <section class="card">
+      <h2 id="formTitle">새 문제 만들기</h2>
+      <div class="field">
+        <label>작품명</label>
+        <input type="text" id="fTitle" placeholder="예: 조위, '만분가'">
+      </div>
+      <div class="field">
+        <label>&lt;보기&gt; (평문 그대로 붙여넣으세요)</label>
+        <textarea id="fGuide"></textarea>
+      </div>
+      <div class="field">
+        <label>원문 (평문 그대로 붙여넣으세요)</label>
+        <textarea id="fOriginal"></textarea>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="btnAiGen">✨ AI로 매핑 생성</button>
+        <span class="hint" id="aiHint">본문 입력 후 누르면 AI가 정답 쌍 초안을 만들어 줍니다.</span>
+      </div>
+      <div id="unmatchedBox" style="display:none" class="unmatched"></div>
+
+      <h2 style="margin-top:22px;">정답 쌍 목록</h2>
+      <ul class="pairlist" id="pairList"></ul>
+      <p class="hint" id="pairEmptyHint">아직 등록된 쌍이 없습니다.</p>
+
+      <div class="row" style="margin-top:10px;">
+        <input type="text" id="mG" placeholder="&lt;보기&gt; 문구(본문에 있는 그대로)" style="flex:1;">
+        <input type="text" id="mO" placeholder="원문 문구(본문에 있는 그대로)" style="flex:1;">
+      </div>
+      <div class="field" style="margin-top:8px;">
+        <input type="text" id="mExp" placeholder="해설(왜 대응하는지)">
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="btnManualAdd">수동으로 쌍 추가</button>
+        <span class="err" id="manualErr"></span>
+      </div>
+
+      <h2 style="margin-top:22px;">미리보기</h2>
+      <div class="mapper" id="previewRoot" style="border:1px solid var(--border);border-radius:10px;">
+        <div class="cols" style="padding:16px;">
+          <div><p class="panel-title">&lt;보기&gt;</p><div class="lit" id="prevGuide" style="background:var(--guide-bg);border-radius:8px;padding:14px;min-height:80px;"></div></div>
+          <div><p class="panel-title">원문</p><div class="lit" id="prevOrig" style="background:var(--orig-bg);border-radius:8px;padding:14px;min-height:80px;"></div></div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:18px;">
+        <button class="btn" id="btnSave">문제 저장</button>
+        <button class="btn ghost" id="btnCancel" style="display:none">수정 취소</button>
+        <span class="err" id="saveErr"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>저장된 문제 목록</h2>
+      <div id="listBox"><p class="muted">불러오는 중…</p></div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+let PW = '';
+let editingId = null;
+let workingPairs = [];
+let previewLines = null;
+
+function q(id) { return document.getElementById(id); }
+
+/* ---------- 인증 ---------- */
+q('gBtn').addEventListener('click', doLogin);
+q('gPw').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+function doLogin() {
+  const pw = q('gPw').value;
+  google.script.run
+    .withSuccessHandler(ok => {
+      if (!ok) { q('gErr').textContent = '비밀번호가 올바르지 않습니다.'; return; }
+      PW = pw;
+      q('gate').style.display = 'none';
+      q('app').style.display = '';
+      loadList();
+    })
+    .withFailureHandler(err => { q('gErr').textContent = err.message || String(err); })
+    .verifyAdmin(pw);
+}
+
+/* ---------- 정답 쌍 목록/미리보기 ---------- */
+function renderPairList() {
+  q('pairList').innerHTML = workingPairs.map((p, i) => `
+    <li>
+      <span class="g">${escapeHtml(p.g)}</span> → <span class="o">${escapeHtml(p.o)}</span>
+      <input type="text" data-i="${i}" class="expInput" value="${escapeHtml(p.exp)}" placeholder="해설">
+      <button class="del" data-i="${i}" title="삭제">×</button>
+    </li>`).join('');
+  q('pairEmptyHint').style.display = workingPairs.length ? 'none' : '';
+  q('pairList').querySelectorAll('.expInput').forEach(el => {
+    el.addEventListener('input', e => { workingPairs[Number(e.target.dataset.i)].exp = e.target.value; });
+  });
+  q('pairList').querySelectorAll('.del').forEach(el => {
+    el.addEventListener('click', e => {
+      workingPairs.splice(Number(e.target.dataset.i), 1);
+      renderPairList(); renderPreview();
+    });
+  });
+  renderPreview();
+}
+
+function renderPreview() {
+  const guideText = q('fGuide').value, originalText = q('fOriginal').value;
+  const gMap = renderHighlighted(q('prevGuide'), guideText, workingPairs.map(p => p.g), 'left');
+  const oMap = renderHighlighted(q('prevOrig'), originalText, workingPairs.map(p => p.o), 'right');
+  const root = q('previewRoot');
+  root.querySelectorAll('svg.line-layer').forEach(s => s.remove());
+  previewLines = createLineLayer(root);
+  workingPairs.forEach(p => {
+    if (gMap[p.g] && oMap[p.o]) previewLines.addLine(p.g + '::' + p.o, gMap[p.g], oMap[p.o], 'var(--muted)');
+  });
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ---------- AI 생성 ---------- */
+q('btnAiGen').addEventListener('click', () => {
+  const guideText = q('fGuide').value.trim(), originalText = q('fOriginal').value.trim();
+  if (!guideText || !originalText) { q('aiHint').textContent = '<보기>와 원문을 먼저 입력하세요.'; return; }
+  q('btnAiGen').disabled = true;
+  q('aiHint').textContent = 'AI가 매핑을 생성하는 중입니다…';
+  google.script.run
+    .withSuccessHandler(list => {
+      q('btnAiGen').disabled = false;
+      q('aiHint').textContent = '본문 입력 후 누르면 AI가 정답 쌍 초안을 만들어 줍니다.';
+      const matched = [], unmatched = [];
+      (list || []).forEach(p => {
+        if (guideText.includes(p.g) && originalText.includes(p.o)) matched.push(p);
+        else unmatched.push(p);
+      });
+      workingPairs = workingPairs.concat(matched);
+      renderPairList();
+      if (unmatched.length) {
+        q('unmatchedBox').style.display = '';
+        q('unmatchedBox').innerHTML = 'AI가 본문에서 정확히 찾지 못한 항목(수동으로 보정해 주세요):<br>'
+          + unmatched.map(p => '· ' + escapeHtml(p.g) + ' → ' + escapeHtml(p.o)).join('<br>');
+      } else {
+        q('unmatchedBox').style.display = 'none';
+      }
+    })
+    .withFailureHandler(err => {
+      q('btnAiGen').disabled = false;
+      q('aiHint').textContent = 'AI 생성 실패: ' + (err.message || err);
+    })
+    .generatePairsWithAI({ password: PW, guideText, originalText });
+});
+
+/* ---------- 수동 쌍 추가 ---------- */
+q('btnManualAdd').addEventListener('click', () => {
+  const g = q('mG').value.trim(), o = q('mO').value.trim(), exp = q('mExp').value.trim();
+  const guideText = q('fGuide').value, originalText = q('fOriginal').value;
+  q('manualErr').textContent = '';
+  if (!g || !o) { q('manualErr').textContent = '<보기> 문구와 원문 문구를 모두 입력하세요.'; return; }
+  if (!guideText.includes(g)) { q('manualErr').textContent = '<보기> 문구가 본문에 정확히 없습니다.'; return; }
+  if (!originalText.includes(o)) { q('manualErr').textContent = '원문 문구가 본문에 정확히 없습니다.'; return; }
+  workingPairs.push({ g, o, exp });
+  q('mG').value = ''; q('mO').value = ''; q('mExp').value = '';
+  renderPairList();
+});
+
+/* ---------- 저장/취소 ---------- */
+q('btnSave').addEventListener('click', () => {
+  q('saveErr').textContent = '';
+  const data = {
+    id: editingId,
+    title: q('fTitle').value.trim(),
+    guideText: q('fGuide').value.trim(),
+    originalText: q('fOriginal').value.trim(),
+    pairs: workingPairs
+  };
+  google.script.run
+    .withSuccessHandler(() => { resetForm(); loadList(); })
+    .withFailureHandler(err => { q('saveErr').textContent = err.message || String(err); })
+    .saveProblem({ password: PW, data });
+});
+q('btnCancel').addEventListener('click', resetForm);
+
+function resetForm() {
+  editingId = null;
+  workingPairs = [];
+  q('fTitle').value = ''; q('fGuide').value = ''; q('fOriginal').value = '';
+  q('formTitle').textContent = '새 문제 만들기';
+  q('btnCancel').style.display = 'none';
+  q('unmatchedBox').style.display = 'none';
+  renderPairList();
+}
+['fGuide', 'fOriginal'].forEach(id => q(id).addEventListener('input', renderPreview));
+
+/* ---------- 목록 ---------- */
+function loadList() {
+  google.script.run
+    .withSuccessHandler(list => {
+      if (!list.length) { q('listBox').innerHTML = '<p class="muted">아직 만든 문제가 없습니다.</p>'; return; }
+      q('listBox').innerHTML = '<table><tr><th>작품명</th><th>공개</th><th>정답 쌍</th><th></th><th></th></tr>'
+        + list.map(p => `
+          <tr data-id="${p.id}">
+            <td>${escapeHtml(p.title)}</td>
+            <td><input type="checkbox" class="pubBox" data-id="${p.id}" ${p.published ? 'checked' : ''}></td>
+            <td>${p.pairs.length}개</td>
+            <td><button class="btn ghost editBtn" data-id="${p.id}">수정</button></td>
+            <td><button class="btn danger delBtn" data-id="${p.id}">삭제</button></td>
+          </tr>`).join('')
+        + '</table>';
+      window.__problems = list;
+      q('listBox').querySelectorAll('.pubBox').forEach(el => {
+        el.addEventListener('change', e => {
+          google.script.run
+            .withFailureHandler(err => alert(err.message || err))
+            .togglePublish({ password: PW, id: e.target.dataset.id, published: e.target.checked });
+        });
+      });
+      q('listBox').querySelectorAll('.editBtn').forEach(el => {
+        el.addEventListener('click', e => loadIntoForm(e.target.dataset.id));
+      });
+      q('listBox').querySelectorAll('.delBtn').forEach(el => {
+        el.addEventListener('click', e => {
+          if (!confirm('이 문제를 삭제할까요? 되돌릴 수 없습니다.')) return;
+          google.script.run
+            .withSuccessHandler(loadList)
+            .withFailureHandler(err => alert(err.message || err))
+            .deleteProblem({ password: PW, id: e.target.dataset.id });
+        });
+      });
+    })
+    .withFailureHandler(err => { q('listBox').innerHTML = '<p class="err">' + (err.message || err) + '</p>'; })
+    .getAllProblems({ password: PW });
+}
+
+function loadIntoForm(id) {
+  const p = (window.__problems || []).find(x => x.id === id);
+  if (!p) return;
+  editingId = p.id;
+  workingPairs = p.pairs.map(x => ({ g: x.g, o: x.o, exp: x.exp }));
+  q('fTitle').value = p.title;
+  q('fGuide').value = p.guideText;
+  q('fOriginal').value = p.originalText;
+  q('formTitle').textContent = '문제 수정 · ' + p.title;
+  q('btnCancel').style.display = '';
+  q('unmatchedBox').style.display = 'none';
+  renderPairList();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+renderPairList();
+</script>
+</body>
+</html>

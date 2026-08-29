@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<base target="_top">
+<?!= include('Shared') ?>
+<style>
+  header{background:var(--accent);color:#fff;padding:18px 20px;}
+  header h1{margin:0;font-size:18px;font-weight:800;}
+  header .work{margin-top:3px;font-size:14px;opacity:.9;font-weight:500;}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px;}
+  .panel-title{font-size:14px;font-weight:800;color:var(--muted);margin:0 0 10px;letter-spacing:.02em;}
+  .panel{padding:20px 22px;min-height:220px;}
+  .status{margin-top:16px;padding:16px 20px;font-size:15px;line-height:1.6;min-height:24px;}
+  .status.idle{color:var(--muted);}
+  .status.correct{background:var(--green-bg);color:var(--green-dark,#2f6b4c);border-color:var(--green);}
+  .status.wrong{background:var(--red-bg);color:#a5392c;border-color:var(--red);}
+  .actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+  .empty{padding:40px 20px;text-align:center;color:var(--muted);}
+  select#problemSelect{font:inherit;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);}
+</style>
+</head>
+<body>
+<header>
+  <h1>수능 고전문학 &lt;보기&gt; 키워드 매핑</h1>
+  <div class="work" id="workTitle">불러오는 중…</div>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="empty">문제를 불러오는 중입니다…</div>
+  <div id="empty" class="empty" style="display:none">공개된 문제가 아직 없습니다. 선생님께 문의해 주세요.</div>
+
+  <div id="app" style="display:none">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+      <select id="problemSelect"></select>
+    </div>
+    <div class="mapper card" id="mapperRoot">
+      <div class="cols" style="padding:22px;">
+        <div>
+          <p class="panel-title">&lt;보기&gt;</p>
+          <div class="lit panel" id="guidePanel" style="background:var(--guide-bg);border-radius:10px;"></div>
+        </div>
+        <div>
+          <p class="panel-title">원문</p>
+          <div class="lit panel" id="origPanel" style="background:var(--orig-bg);border-radius:10px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="status card idle" id="status">왼쪽 &lt;보기&gt;의 핵심어를 클릭한 뒤, 오른쪽 원문에서 대응하는 시어를 클릭하세요.</div>
+
+    <div class="actions">
+      <button class="btn ghost" id="btnReset">리셋</button>
+      <button class="btn" id="btnNext">다음 문제</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let problems = [];
+let idx = 0;
+let lineLayer = null;
+
+function setStatus(kind, text) {
+  const el = document.getElementById('status');
+  el.className = 'status card ' + kind;
+  el.textContent = text;
+}
+
+function render(problem) {
+  document.getElementById('workTitle').textContent = problem.title;
+  const guideEl = document.getElementById('guidePanel');
+  const origEl = document.getElementById('origPanel');
+  const gMap = renderHighlighted(guideEl, problem.guideText, problem.pairs.map(p => p.g), 'left');
+  const oMap = renderHighlighted(origEl, problem.originalText, problem.pairs.map(p => p.o), 'right');
+
+  const root = document.getElementById('mapperRoot');
+  root.querySelectorAll('svg.line-layer').forEach(s => s.remove());
+  lineLayer = createLineLayer(root);
+
+  setStatus('idle', '왼쪽 <보기>의 핵심어를 클릭한 뒤, 오른쪽 원문에서 대응하는 시어를 클릭하세요.');
+
+  enablePairing(gMap, oMap, (gKw, gEl, oKw, oEl) => {
+    const pair = problem.pairs.find(p => p.g === gKw);
+    const correct = pair && pair.o === oKw;
+    const key = gKw + '::' + oKw;
+    if (correct) {
+      lineLayer.addLine(key, gEl, oEl, getComputedStyle(document.documentElement).getPropertyValue('--green'));
+      gEl.classList.add('solved'); oEl.classList.add('solved');
+      setStatus('correct', '정답입니다! "' + gKw + '"과(와) "' + oKw + '"의 대응: ' + pair.exp);
+      if (problem.pairs.every(p => gMap[p.g].classList.contains('solved'))) {
+        setTimeout(() => setStatus('correct', '모든 쌍을 완성했습니다! "다음 문제"를 눌러보세요.'), 1200);
+      }
+    } else {
+      lineLayer.addLine(key, gEl, oEl, getComputedStyle(document.documentElement).getPropertyValue('--red'));
+      gEl.classList.add('shake'); oEl.classList.add('shake');
+      const answer = pair ? pair.o : null;
+      setStatus('wrong', answer
+        ? '오답입니다. "' + gKw + '"의 정답 시어는 "' + answer + '"입니다.'
+        : '오답입니다. 다시 시도해 보세요.');
+      setTimeout(() => {
+        lineLayer.removeLine(key);
+        gEl.classList.remove('shake'); oEl.classList.remove('shake');
+      }, 450);
+    }
+  });
+}
+
+function renderSelect() {
+  const sel = document.getElementById('problemSelect');
+  sel.innerHTML = problems.map((p, i) => `<option value="${i}">${p.title}</option>`).join('');
+  sel.value = idx;
+}
+
+document.getElementById('problemSelect').addEventListener('change', e => {
+  idx = Number(e.target.value);
+  render(problems[idx]);
+});
+document.getElementById('btnReset').addEventListener('click', () => render(problems[idx]));
+document.getElementById('btnNext').addEventListener('click', () => {
+  idx = (idx + 1) % problems.length;
+  renderSelect();
+  render(problems[idx]);
+});
+
+google.script.run
+  .withSuccessHandler(list => {
+    problems = list || [];
+    document.getElementById('loading').style.display = 'none';
+    if (!problems.length) { document.getElementById('empty').style.display = ''; return; }
+    document.getElementById('app').style.display = '';
+    renderSelect();
+    render(problems[0]);
+  })
+  .withFailureHandler(err => {
+    document.getElementById('loading').textContent = '문제를 불러오지 못했습니다: ' + (err.message || err);
+  })
+  .getPublishedProblems();
+</script>
+</body>
+</html>
