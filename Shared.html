@@ -40,6 +40,14 @@
   .mapper .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
   @media (max-width:720px){ .mapper .cols{grid-template-columns:1fr;} }
   .line-layer{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;}
+
+  .mcOptions{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
+  .mcOptions li{border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;
+    background:#fff;font-size:14px;line-height:1.6;transition:background .15s,border-color .15s;}
+  .mcOptions li:hover{border-color:var(--accent);}
+  .mcOptions li.disabled{cursor:default;}
+  .mcOptions li.correct{background:var(--green-bg);border-color:var(--green);color:var(--green);font-weight:700;}
+  .mcOptions li.wrong{background:var(--red-bg);border-color:var(--red);color:#a5392c;font-weight:700;}
 </style>
 <script>
 /* 텍스트 안에서 keywords 배열의 각 문구를(첫 등장만) <span class="kw">로 감싸 렌더링.
