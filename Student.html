@@ -49,6 +49,13 @@
 
     <div class="status card idle" id="status">왼쪽 &lt;보기&gt;의 핵심어를 클릭한 뒤, 오른쪽 원문에서 대응하는 시어를 클릭하세요.</div>
 
+    <div class="mc card" id="mcSection" style="display:none;padding:20px 22px;margin-top:16px;">
+      <p class="panel-title">2단계 · &lt;보기&gt;를 힌트 삼아 원문을 감상해 보세요</p>
+      <p id="mcQuestion" style="font-weight:700;margin:6px 0 14px;"></p>
+      <ul class="mcOptions" id="mcOptions"></ul>
+      <div class="status card idle" id="mcStatus" style="margin-top:14px;display:none;"></div>
+    </div>
+
     <div class="actions">
       <button class="btn ghost" id="btnReset">리셋</button>
       <button class="btn" id="btnNext">다음 문제</button>
@@ -84,6 +91,7 @@ function render(problem) {
   lineLayer = createLineLayer(root);
 
   setStatus('idle', '왼쪽 <보기>의 핵심어를 클릭한 뒤, 오른쪽 원문에서 대응하는 시어를 클릭하세요.');
+  renderMc(problem);
 
   enablePairing(gMap, oMap, (gKw, gEl, oKw, oEl) => {
     const pair = problem.pairs.find(p => p.g === gKw);
@@ -94,7 +102,10 @@ function render(problem) {
       gEl.classList.add('solved'); oEl.classList.add('solved');
       setStatus('correct', '정답입니다! "' + gKw + '"과(와) "' + oKw + '"의 대응: ' + pair.exp);
       if (problem.pairs.every(p => gMap[p.g].classList.contains('solved'))) {
-        setTimeout(() => setStatus('correct', '모든 쌍을 완성했습니다! "다음 문제"를 눌러보세요.'), 1200);
+        setTimeout(() => {
+          setStatus('correct', '모든 쌍을 완성했습니다!' + (problem.mc ? ' 이어서 아래 감상 문제를 풀어보세요.' : ' "다음 문제"를 눌러보세요.'));
+          if (problem.mc) document.getElementById('mcSection').style.display = '';
+        }, 1200);
       }
     } else {
       lineLayer.addLine(key, gEl, oEl, getComputedStyle(document.documentElement).getPropertyValue('--red'));
@@ -109,6 +120,38 @@ function render(problem) {
       }, 450);
     }
   });
+}
+
+/* 2단계: 매칭을 모두 마친 뒤에만 열리는 수능형 5지선다(적절하지 않은 것 찾기) */
+function renderMc(problem) {
+  const sec = document.getElementById('mcSection');
+  const mcStatus = document.getElementById('mcStatus');
+  mcStatus.style.display = 'none';
+  if (!problem.mc) { sec.style.display = 'none'; return; }
+  sec.style.display = 'none'; // 매칭 완료 시 render()의 setTimeout에서 다시 연다
+  document.getElementById('mcQuestion').textContent = problem.mc.question;
+  const ul = document.getElementById('mcOptions');
+  ul.innerHTML = '';
+  delete ul.dataset.answered;
+  problem.mc.options.forEach((opt, i) => {
+    const li = document.createElement('li');
+    li.textContent = (i + 1) + '. ' + opt;
+    li.addEventListener('click', () => pickMc(problem, i, li, ul));
+    ul.appendChild(li);
+  });
+}
+
+function pickMc(problem, i, li, ul) {
+  if (ul.dataset.answered) return;
+  ul.dataset.answered = '1';
+  ul.querySelectorAll('li').forEach(el => el.classList.add('disabled'));
+  const correct = i === problem.mc.answerIndex;
+  li.classList.add(correct ? 'correct' : 'wrong');
+  if (!correct) ul.children[problem.mc.answerIndex].classList.add('correct');
+  const mcStatus = document.getElementById('mcStatus');
+  mcStatus.style.display = '';
+  mcStatus.className = 'status card ' + (correct ? 'correct' : 'wrong');
+  mcStatus.textContent = (correct ? '정답입니다! ' : '아쉽지만 오답입니다. ') + problem.mc.explanation;
 }
 
 function renderSelect() {

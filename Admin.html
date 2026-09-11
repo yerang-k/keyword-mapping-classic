@@ -84,6 +84,25 @@
         <span class="err" id="manualErr"></span>
       </div>
 
+      <h2 style="margin-top:22px;">감상 선택지 문제 (2단계 · 선택)</h2>
+      <p class="hint">학생이 매칭(1단계)을 모두 마친 뒤 이어서 푸는 수능형 5지선다 문제입니다. 비워두면 이 문제는 매칭까지만 진행됩니다.</p>
+      <div class="row">
+        <button class="btn" id="btnAiGenMc">✨ AI로 선택지 생성</button>
+        <span class="hint" id="mcAiHint">정답 쌍을 먼저 만들면 더 정확한 문제가 나옵니다.</span>
+      </div>
+      <div class="field" style="margin-top:12px;">
+        <label>질문</label>
+        <input type="text" id="mcQuestion" placeholder="예: <보기>를 바탕으로 윗글을 감상한 내용으로 적절하지 않은 것은?">
+      </div>
+      <ol id="mcOptionList" style="padding-left:20px;font-size:13px;margin:0;"></ol>
+      <div class="field" style="margin-top:10px;">
+        <label>해설(정답 선택지가 왜 틀렸는지)</label>
+        <textarea id="mcExplanation" style="min-height:60px;"></textarea>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="btnMcClear">2단계 문제 비우기</button>
+      </div>
+
       <h2 style="margin-top:22px;">미리보기</h2>
       <div class="mapper" id="previewRoot" style="border:1px solid var(--border);border-radius:10px;">
         <div class="cols" style="padding:16px;">
@@ -111,7 +130,10 @@
 let PW = '';
 let editingId = null;
 let workingPairs = [];
+let workingMc = blankMc();
 let previewLines = null;
+
+function blankMc() { return { question: '', options: ['', '', '', '', ''], answerIndex: 0, explanation: '' }; }
 
 function q(id) { return document.getElementById(id); }
 
@@ -165,6 +187,52 @@ function renderPreview() {
   });
 }
 
+/* ---------- 2단계 감상 문제 ---------- */
+function renderMcOptions() {
+  const ol = q('mcOptionList');
+  ol.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const li = document.createElement('li');
+    li.style.marginBottom = '6px';
+    li.innerHTML = `<label style="display:flex;align-items:center;gap:8px;font-weight:400;">
+      <input type="radio" name="mcAnswer" value="${i}" ${workingMc.answerIndex === i ? 'checked' : ''} title="이 선택지가 정답(적절하지 않은 것)">
+      <input type="text" data-i="${i}" class="mcOptInput" style="flex:1;padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;"
+        value="${escapeHtml(workingMc.options[i] || '')}" placeholder="선택지 ${i + 1} (라디오로 정답 표시)">
+    </label>`;
+    ol.appendChild(li);
+  }
+  ol.querySelectorAll('.mcOptInput').forEach(el => {
+    el.addEventListener('input', e => { workingMc.options[Number(e.target.dataset.i)] = e.target.value; });
+  });
+  ol.querySelectorAll('input[name=mcAnswer]').forEach(el => {
+    el.addEventListener('change', e => { workingMc.answerIndex = Number(e.target.value); });
+  });
+  q('mcQuestion').value = workingMc.question || '';
+  q('mcExplanation').value = workingMc.explanation || '';
+}
+q('mcQuestion').addEventListener('input', e => { workingMc.question = e.target.value; });
+q('mcExplanation').addEventListener('input', e => { workingMc.explanation = e.target.value; });
+q('btnMcClear').addEventListener('click', () => { workingMc = blankMc(); renderMcOptions(); });
+
+q('btnAiGenMc').addEventListener('click', () => {
+  const guideText = q('fGuide').value.trim(), originalText = q('fOriginal').value.trim();
+  if (!guideText || !originalText) { q('mcAiHint').textContent = '<보기>와 원문을 먼저 입력하세요.'; return; }
+  q('btnAiGenMc').disabled = true;
+  q('mcAiHint').textContent = 'AI가 선택지를 생성하는 중입니다…';
+  google.script.run
+    .withSuccessHandler(mc => {
+      q('btnAiGenMc').disabled = false;
+      q('mcAiHint').textContent = '정답 쌍을 먼저 만들면 더 정확한 문제가 나옵니다.';
+      workingMc = mc;
+      renderMcOptions();
+    })
+    .withFailureHandler(err => {
+      q('btnAiGenMc').disabled = false;
+      q('mcAiHint').textContent = 'AI 생성 실패: ' + (err.message || err);
+    })
+    .generateMcQuestionWithAI({ password: PW, guideText, originalText, pairs: workingPairs });
+});
+
 function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -217,12 +285,14 @@ q('btnManualAdd').addEventListener('click', () => {
 /* ---------- 저장/취소 ---------- */
 q('btnSave').addEventListener('click', () => {
   q('saveErr').textContent = '';
+  const mcFilled = workingMc.question.trim() && workingMc.options.every(o => o.trim()) && workingMc.explanation.trim();
   const data = {
     id: editingId,
     title: q('fTitle').value.trim(),
     guideText: q('fGuide').value.trim(),
     originalText: q('fOriginal').value.trim(),
-    pairs: workingPairs
+    pairs: workingPairs,
+    mc: mcFilled ? workingMc : null
   };
   google.script.run
     .withSuccessHandler(() => { resetForm(); loadList(); })
@@ -234,11 +304,13 @@ q('btnCancel').addEventListener('click', resetForm);
 function resetForm() {
   editingId = null;
   workingPairs = [];
+  workingMc = blankMc();
   q('fTitle').value = ''; q('fGuide').value = ''; q('fOriginal').value = '';
   q('formTitle').textContent = '새 문제 만들기';
   q('btnCancel').style.display = 'none';
   q('unmatchedBox').style.display = 'none';
   renderPairList();
+  renderMcOptions();
 }
 ['fGuide', 'fOriginal'].forEach(id => q(id).addEventListener('input', renderPreview));
 
@@ -247,12 +319,13 @@ function loadList() {
   google.script.run
     .withSuccessHandler(list => {
       if (!list.length) { q('listBox').innerHTML = '<p class="muted">아직 만든 문제가 없습니다.</p>'; return; }
-      q('listBox').innerHTML = '<table><tr><th>작품명</th><th>공개</th><th>정답 쌍</th><th></th><th></th></tr>'
+      q('listBox').innerHTML = '<table><tr><th>작품명</th><th>공개</th><th>정답 쌍</th><th>2단계</th><th></th><th></th></tr>'
         + list.map(p => `
           <tr data-id="${p.id}">
             <td>${escapeHtml(p.title)}</td>
             <td><input type="checkbox" class="pubBox" data-id="${p.id}" ${p.published ? 'checked' : ''}></td>
             <td>${p.pairs.length}개</td>
+            <td>${p.mc ? '✓' : '-'}</td>
             <td><button class="btn ghost editBtn" data-id="${p.id}">수정</button></td>
             <td><button class="btn danger delBtn" data-id="${p.id}">삭제</button></td>
           </tr>`).join('')
@@ -287,6 +360,7 @@ function loadIntoForm(id) {
   if (!p) return;
   editingId = p.id;
   workingPairs = p.pairs.map(x => ({ g: x.g, o: x.o, exp: x.exp }));
+  workingMc = p.mc ? { question: p.mc.question, options: p.mc.options.slice(), answerIndex: p.mc.answerIndex, explanation: p.mc.explanation } : blankMc();
   q('fTitle').value = p.title;
   q('fGuide').value = p.guideText;
   q('fOriginal').value = p.originalText;
@@ -294,10 +368,12 @@ function loadIntoForm(id) {
   q('btnCancel').style.display = '';
   q('unmatchedBox').style.display = 'none';
   renderPairList();
+  renderMcOptions();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 renderPairList();
+renderMcOptions();
 </script>
 
 <p style="margin:24px auto 16px;max-width:520px;padding:0 16px;text-align:center;

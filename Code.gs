@@ -15,10 +15,10 @@
  * (둘 다 코드에 두지 않는다 — 사본에 딸려가지 않게 하기 위함, training-register와 동일 관례)
  */
 const SHEET_NAME = 'Problems';
-const HEADERS = ['id', 'title', 'guideText', 'originalText', 'pairsJson', 'published', 'createdAt'];
+const HEADERS = ['id', 'title', 'guideText', 'originalText', 'pairsJson', 'published', 'createdAt', 'mcJson'];
 const GEMINI_MODEL = 'gemini-3.6-flash';
 
-const COL = { ID: 1, TITLE: 2, GUIDE: 3, ORIGINAL: 4, PAIRS: 5, PUBLISHED: 6, CREATED: 7 };
+const COL = { ID: 1, TITLE: 2, GUIDE: 3, ORIGINAL: 4, PAIRS: 5, PUBLISHED: 6, CREATED: 7, MC: 8 };
 
 /* ===================== 라우팅 ===================== */
 function doGet(e) {
@@ -83,7 +83,19 @@ function seedDefaultProblem_(sheet) {
     { g: '억울하게 유배를 간 상황', o: '적객', exp: '화자 자신을 귀양 간 사람인 적객으로 표현하여 유배지에서의 처지를 나타냅니다.' },
     { g: '변함없는 충성심', o: '매화', exp: '매화는 시련 속에서도 꺾이지 않는 절개·충절을 상징하는 소재입니다.' }
   ];
-  sheet.appendRow([Utilities.getUuid(), "조위, '만분가' (예시)", guideText, originalText, JSON.stringify(pairs), false, new Date()]);
+  const mc = {
+    question: '<보기>를 바탕으로 윗글을 감상한 내용으로 적절하지 않은 것은?',
+    options: [
+      '화자는 유배지에서도 임금에 대한 충심을 버리지 않고 있다.',
+      "'적객'은 화자가 자신의 처지를 가리키는 표현이다.",
+      "'매화'는 임금에 대한 화자의 변함없는 절개를 상징한다.",
+      '화자는 자신의 결백이 이미 밝혀져 홀가분한 심정을 드러내고 있다.',
+      '화자는 임과 멀리 떨어진 상황을 산과 물의 높고 넓음에 빗대어 표현하고 있다.'
+    ],
+    answerIndex: 3,
+    explanation: '화자는 자신의 결백을 호소하는 처지일 뿐 결백이 밝혀진 것이 아니므로, 홀가분한 심정이라는 감상은 적절하지 않습니다.'
+  };
+  sheet.appendRow([Utilities.getUuid(), "조위, '만분가' (예시)", guideText, originalText, JSON.stringify(pairs), false, new Date(), JSON.stringify(mc)]);
 }
 
 function readAllRows_() {
@@ -98,12 +110,15 @@ function readAllRows_() {
 function rowToProblem_(values) {
   let pairs = [];
   try { pairs = JSON.parse(values[COL.PAIRS - 1] || '[]'); } catch (e) { pairs = []; }
+  let mc = null;
+  try { mc = values[COL.MC - 1] ? JSON.parse(values[COL.MC - 1]) : null; } catch (e) { mc = null; }
   return {
     id: values[COL.ID - 1],
     title: values[COL.TITLE - 1],
     guideText: values[COL.GUIDE - 1],
     originalText: values[COL.ORIGINAL - 1],
     pairs: pairs,
+    mc: mc,
     published: values[COL.PUBLISHED - 1] === true || values[COL.PUBLISHED - 1] === 'TRUE',
     createdAt: values[COL.CREATED - 1]
   };
@@ -145,6 +160,18 @@ function saveProblem(params) {
     return { g: String(p.g), o: String(p.o), exp: String(p.exp || '') };
   }));
 
+  let mcJson = '';
+  if (data.mc) {
+    const mc = data.mc;
+    const opts = Array.isArray(mc.options) ? mc.options.map(String) : [];
+    const idx = Number(mc.answerIndex);
+    if (!mc.question || opts.length !== 5 || opts.some(function (o) { return !o.trim(); })
+      || !(idx >= 0 && idx <= 4) || !mc.explanation) {
+      throw new Error('2단계 감상 문제는 질문·선택지 5개·정답·해설을 모두 채우거나, 비워서 2단계 없이 저장하세요.');
+    }
+    mcJson = JSON.stringify({ question: String(mc.question), options: opts, answerIndex: idx, explanation: String(mc.explanation) });
+  }
+
   const sheet = getSheet_();
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -156,10 +183,11 @@ function saveProblem(params) {
       sheet.getRange(existing.row, COL.GUIDE).setValue(data.guideText);
       sheet.getRange(existing.row, COL.ORIGINAL).setValue(data.originalText);
       sheet.getRange(existing.row, COL.PAIRS).setValue(pairsJson);
+      sheet.getRange(existing.row, COL.MC).setValue(mcJson);
       return { id: data.id };
     }
     const id = Utilities.getUuid();
-    sheet.appendRow([id, data.title, data.guideText, data.originalText, pairsJson, false, new Date()]);
+    sheet.appendRow([id, data.title, data.guideText, data.originalText, pairsJson, false, new Date(), mcJson]);
     return { id: id };
   } finally {
     lock.releaseLock();
@@ -252,6 +280,88 @@ function generatePairsWithAI(params) {
   return raw.map(function (p) {
     return { g: String(p.guideKeyword || '').trim(), o: String(p.originalKeyword || '').trim(), exp: String(p.explanation || '').trim() };
   }).filter(function (p) { return p.g && p.o; });
+}
+
+/* ===================== 교사용: AI 2단계 감상 문제 생성 =====================
+ * 매칭(1단계)을 마친 학생이 그 힌트로 원문 전체를 실제로 이해했는지 확인하는
+ * 수능형 5지선다("적절하지 않은 것은?") 문제를 만든다. 확정된 매칭 쌍이 있으면
+ * 함께 넘겨 AI가 그 맥락 위에서 문제를 만들게 한다.
+ */
+function generateMcQuestionWithAI(params) {
+  requireAdmin_(params);
+  const guideText = String(params.guideText || '').trim();
+  const originalText = String(params.originalText || '').trim();
+  const pairs = Array.isArray(params.pairs) ? params.pairs : [];
+  if (!guideText || !originalText) throw new Error('<보기>와 원문을 먼저 입력하세요.');
+
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) {
+    throw new Error('Gemini API 키가 설정되지 않았습니다. '
+      + '[프로젝트 설정 → 스크립트 속성]에서 GEMINI_API_KEY를 추가하거나, 아래에서 수동으로 입력하세요.');
+  }
+
+  const pairsDesc = pairs.map(function (p) { return '- ' + p.g + ' ↔ ' + p.o + (p.exp ? ' (' + p.exp + ')' : ''); }).join('\n') || '(없음)';
+
+  const prompt = '당신은 수능 국어 고전문학 출제 전문가입니다.\n'
+    + '아래 <보기>와 원문, 그리고 이미 확인된 핵심어 대응 쌍을 참고하여, '
+    + '"<보기>를 바탕으로 윗글을 감상한 내용으로 적절하지 않은 것은?" 형태의 5지선다 문제를 하나 만드세요.\n\n'
+    + '[<보기>]\n' + guideText + '\n\n'
+    + '[원문]\n' + originalText + '\n\n'
+    + '[확인된 대응 쌍]\n' + pairsDesc + '\n\n'
+    + '[중요 규칙]\n'
+    + '1. 선택지는 정확히 5개를 만드세요.\n'
+    + '2. 4개는 <보기>와 원문 내용에 부합하는 올바른 감상, 1개는 <보기>나 원문 내용과 어긋나는 틀린 감상으로 만드세요.\n'
+    + '3. 틀린 선택지도 매력적인 오답이 되도록, 원문을 제대로 이해해야만 구별할 수 있게 만드세요.\n'
+    + '4. answerIndex는 틀린 선택지의 0부터 시작하는 인덱스입니다.\n'
+    + '5. explanation은 그 선택지가 왜 틀렸는지 수능 국어 학습자가 이해할 수 있게 1~2문장으로 설명하세요.';
+
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          question: { type: 'STRING' },
+          options: { type: 'ARRAY', items: { type: 'STRING' } },
+          answerIndex: { type: 'INTEGER' },
+          explanation: { type: 'STRING' }
+        },
+        required: ['question', 'options', 'answerIndex', 'explanation']
+      }
+    }
+  };
+
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL
+    + ':generateContent?key=' + encodeURIComponent(apiKey);
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() !== 200) {
+    throw new Error('AI 호출 실패(' + resp.getResponseCode() + '): ' + resp.getContentText().slice(0, 300));
+  }
+
+  const body = JSON.parse(resp.getContentText());
+  const text = body.candidates && body.candidates[0] && body.candidates[0].content
+    && body.candidates[0].content.parts && body.candidates[0].content.parts[0]
+    && body.candidates[0].content.parts[0].text;
+  if (!text) throw new Error('AI 응답이 비어 있습니다.');
+
+  const raw = parseAiJson_(text);
+  const options = Array.isArray(raw.options) ? raw.options.map(function (o) { return String(o).trim(); }) : [];
+  if (options.length !== 5) throw new Error('AI가 선택지 5개를 만들지 못했습니다. 다시 시도해 주세요.');
+  const answerIndex = Number(raw.answerIndex);
+  if (!(answerIndex >= 0 && answerIndex <= 4)) throw new Error('AI 응답의 정답 인덱스가 올바르지 않습니다. 다시 시도해 주세요.');
+
+  return {
+    question: String(raw.question || '').trim(),
+    options: options,
+    answerIndex: answerIndex,
+    explanation: String(raw.explanation || '').trim()
+  };
 }
 
 /** 마크다운 코드펜스가 섞여 와도 견디는 JSON 파싱(hwp_gemini_generator/gemini_client.py와 동일 관례) */
