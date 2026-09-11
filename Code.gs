@@ -120,7 +120,7 @@ function rowToProblem_(values) {
     pairs: pairs,
     mc: mc,
     published: values[COL.PUBLISHED - 1] === true || values[COL.PUBLISHED - 1] === 'TRUE',
-    createdAt: values[COL.CREATED - 1]
+    createdAt: (values[COL.CREATED - 1] instanceof Date) ? values[COL.CREATED - 1].toISOString() : values[COL.CREATED - 1]
   };
 }
 
