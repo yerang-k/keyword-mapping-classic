@@ -212,6 +212,75 @@ function togglePublish(params) {
   return { ok: true };
 }
 
+/* ===================== 교사용: PDF에서 <보기>/원문 자동 추출 =====================
+ * Gemini는 PDF를 직접 읽을 수 있어서(멀티모달), 별도 OCR/Drive 변환 없이
+ * 파일 바이트를 그대로 넘겨 <보기>와 원문 구간을 찾게 한다.
+ * AI가 잘못 나눌 수 있으므로 결과는 폼에 채워 넣기만 하고, 교사가 확인 후
+ * 기존 "AI로 매핑 생성" 흐름으로 이어가게 한다.
+ */
+function extractFromPdfWithAI(params) {
+  requireAdmin_(params);
+  const pdfBase64 = String(params.pdfBase64 || '');
+  if (!pdfBase64) throw new Error('PDF 파일을 먼저 선택하세요.');
+
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) {
+    throw new Error('Gemini API 키가 설정되지 않았습니다. '
+      + '[프로젝트 설정 → 스크립트 속성]에서 GEMINI_API_KEY를 추가하세요.');
+  }
+
+  const prompt = '첨부한 PDF는 수능/모의고사 국어 문학 기출문제 한 문항입니다.\n'
+    + '이 문항에서 아래 두 부분을 원문 그대로(한 글자도 바꾸거나 요약하지 말고) 찾아 추출하세요.\n'
+    + '1. guideText: <보기>로 표시된 부분의 본문(외적 준거·감상의 틀 설명). "<보기>"라는 표시 자체는 포함하지 마세요.\n'
+    + '2. originalText: 실제 작품 본문(지문) 전체.\n'
+    + '문제 번호, 발문("~적절한 것은?" 등), 선택지(①~⑤)는 제외하세요.\n'
+    + '문서에 여러 문항이 있다면 첫 번째 문항만 사용하세요.';
+
+  const payload = {
+    contents: [{
+      parts: [
+        { inlineData: { mimeType: params.mimeType || 'application/pdf', data: pdfBase64 } },
+        { text: prompt }
+      ]
+    }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          guideText: { type: 'STRING' },
+          originalText: { type: 'STRING' }
+        },
+        required: ['guideText', 'originalText']
+      }
+    }
+  };
+
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL
+    + ':generateContent?key=' + encodeURIComponent(apiKey);
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() !== 200) {
+    throw new Error('AI 호출 실패(' + resp.getResponseCode() + '): ' + resp.getContentText().slice(0, 300));
+  }
+
+  const body = JSON.parse(resp.getContentText());
+  const text = body.candidates && body.candidates[0] && body.candidates[0].content
+    && body.candidates[0].content.parts && body.candidates[0].content.parts[0]
+    && body.candidates[0].content.parts[0].text;
+  if (!text) throw new Error('AI 응답이 비어 있습니다.');
+
+  const raw = parseAiJson_(text);
+  return {
+    guideText: String(raw.guideText || '').trim(),
+    originalText: String(raw.originalText || '').trim()
+  };
+}
+
 /* ===================== 교사용: AI 매핑 초안 생성 =====================
  * 서버(Code.gs)에서 Gemini를 호출한다 — Admin.html은 학생도 열어볼 수 있는
  * 웹앱 클라이언트 코드이므로, 거기에 API 키를 두면 그대로 노출된다.

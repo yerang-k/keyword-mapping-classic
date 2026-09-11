@@ -50,6 +50,14 @@
     <section class="card">
       <h2 id="formTitle">새 문제 만들기</h2>
       <div class="field">
+        <label>PDF에서 자동 채우기 (선택)</label>
+        <div class="row">
+          <input type="file" id="fPdf" accept="application/pdf" style="flex:1;">
+          <button class="btn" id="btnPdfExtract">📄 PDF에서 추출</button>
+        </div>
+        <p class="hint" id="pdfHint">기출문제 PDF를 올리면 AI가 &lt;보기&gt;와 원문을 찾아 아래 칸에 채워줍니다. 채워진 내용은 꼭 확인하고 필요하면 고치세요.</p>
+      </div>
+      <div class="field">
         <label>작품명</label>
         <input type="text" id="fTitle" placeholder="예: 조위, '만분가'">
       </div>
@@ -236,6 +244,36 @@ q('btnAiGenMc').addEventListener('click', () => {
 function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+/* ---------- PDF에서 자동 추출 ---------- */
+q('btnPdfExtract').addEventListener('click', () => {
+  const file = q('fPdf').files[0];
+  if (!file) { q('pdfHint').textContent = 'PDF 파일을 먼저 선택하세요.'; return; }
+  q('btnPdfExtract').disabled = true;
+  q('pdfHint').textContent = 'PDF에서 <보기>와 원문을 찾는 중입니다…';
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64 = reader.result.split(',')[1];
+    google.script.run
+      .withSuccessHandler(res => {
+        q('btnPdfExtract').disabled = false;
+        q('pdfHint').textContent = '추출된 내용을 검토한 뒤 필요하면 고치고, "AI로 매핑 생성"을 눌러주세요.';
+        q('fGuide').value = res.guideText;
+        q('fOriginal').value = res.originalText;
+        renderPreview();
+      })
+      .withFailureHandler(err => {
+        q('btnPdfExtract').disabled = false;
+        q('pdfHint').textContent = 'PDF 추출 실패: ' + (err.message || err);
+      })
+      .extractFromPdfWithAI({ password: PW, pdfBase64: base64, mimeType: file.type || 'application/pdf' });
+  };
+  reader.onerror = () => {
+    q('btnPdfExtract').disabled = false;
+    q('pdfHint').textContent = 'PDF 파일을 읽지 못했습니다.';
+  };
+  reader.readAsDataURL(file);
+});
 
 /* ---------- AI 생성 ---------- */
 q('btnAiGen').addEventListener('click', () => {
